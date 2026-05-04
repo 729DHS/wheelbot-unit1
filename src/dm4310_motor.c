@@ -319,8 +319,10 @@ int dm4310_init(void)
 #endif
 
 	g_dm4310.ready = 1U;
-	g_dm4310.hold_kp = 90.0f;
-	g_dm4310.hold_kd = 1.8f;
+	for (int i = 0; i < DM4310_MOTOR_COUNT; i++) {
+		g_dm4310.hold_kp[i] = 90.0f;
+		g_dm4310.hold_kd[i] = 1.8f;
+	}
 
 	return 0;
 }
@@ -439,8 +441,8 @@ int dm4310_tick(void)
 
 			if (g_dm4310.hold_updates > 0U) {
 				dm4310_pack_control(g_dm4310.hold_pos_rad[idx],
-						    0.0f, g_dm4310.hold_kp,
-						    g_dm4310.hold_kd, 0.0f, data);
+						    0.0f, g_dm4310.hold_kp[idx],
+						    g_dm4310.hold_kd[idx], 0.0f, data);
 			} else {
 				dm4310_pack_control(0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
 						    data);

@@ -65,8 +65,8 @@ struct dm4310_driver {
 	int32_t can1_home_save_ret;
 	float can1_home_pos_rad[DM4310_HOME_MOTOR_COUNT];
 	uint32_t hold_updates;
-	float hold_kp;
-	float hold_kd;
+	float hold_kp[DM4310_MOTOR_COUNT];
+	float hold_kd[DM4310_MOTOR_COUNT];
 	float hold_pos_rad[DM4310_MOTOR_COUNT];
 	struct dm4310_motor_status motor[DM4310_MOTOR_COUNT];
 };
