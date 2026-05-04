@@ -17,11 +17,13 @@
  *   Each side tracks its own spring home; sync couples them.
  *
  * OpenOCD debug variables (volatile, accessible via gdb/monitor mdw):
- *   cmd_kp              - spring stiffness (0-500, default 10)
- *   cmd_kd              - damping (0-5, default 0.5)
- *   cmd_target_offset[] - target position offset from home [rad]
- *   cmd_side_active[]   - [0]=left active flag, [1]=right active flag
- *   g_dm4310            - full driver state
+ *   cmd_kp               - spring stiffness (0-500, default 10)
+ *   cmd_kd               - damping (0-5, default 0.5)
+ *   cmd_target_offset[]  - target position offset from home [rad]
+ *   cmd_side_on_thresh   - side detection ON threshold [rad] (default 0.08)
+ *   cmd_side_off_thresh  - side detection OFF threshold [rad] (default 0.03)
+ *   cmd_side_active[]    - [0]=left active flag, [1]=right active flag
+ *   g_dm4310             - full driver state
  *
  * Motor mapping:
  *   CAN1 -> motor 1 (left hip), motor 2 (left knee)
@@ -41,9 +43,13 @@ volatile float cmd_kp = 10.0f;
 volatile float cmd_kd = 0.5f;
 volatile float cmd_target_offset[DM4310_MOTOR_COUNT];
 
-/* ── Side detection ── */
-#define SIDE_DETECT_THRESHOLD_RAD 0.03f
+/* ── Side detection (hysteresis + debounce prevents mechanical-coupling crosstalk) ── */
+volatile float cmd_side_on_thresh  = 0.08f;  /* error > this → side active */
+volatile float cmd_side_off_thresh = 0.03f;  /* error < this → side inactive */
+#define SIDE_DEBOUNCE_MS 80U                /* must sustain for this long */
 volatile uint8_t cmd_side_active[2];  /* [0]=left, [1]=right */
+static uint8_t  side_dbc[2];         /* debounce counter (ms) */
+static uint32_t side_last_ms;
 
 /* ── Spring home positions ── */
 static float home_pos_rad[DM4310_MOTOR_COUNT];
@@ -72,6 +78,9 @@ static void detect_active_side(const float target[DM4310_MOTOR_COUNT])
 {
 	float error_left  = 0.0f;
 	float error_right = 0.0f;
+	uint32_t now = k_uptime_get_32();
+	uint32_t dt_ms = (side_last_ms != 0U) ? (now - side_last_ms) : LOOP_PERIOD_MS;
+	side_last_ms = now;
 
 	/* Left leg: motors 1,2 (indices 0,1) */
 	for (int i = 0; i < 2; i++) {
@@ -80,7 +89,17 @@ static void detect_active_side(const float target[DM4310_MOTOR_COUNT])
 			if (e > error_left) error_left = e;
 		}
 	}
-	cmd_side_active[0] = (error_left > SIDE_DETECT_THRESHOLD_RAD) ? 1U : 0U;
+	/* Hysteresis + debounce: ON when sustained above on_thresh */
+	if (error_left > cmd_side_on_thresh) {
+		side_dbc[0] = (uint8_t)((uint32_t)side_dbc[0] + dt_ms);
+		if (side_dbc[0] >= SIDE_DEBOUNCE_MS) {
+			side_dbc[0] = SIDE_DEBOUNCE_MS;
+			cmd_side_active[0] = 1U;
+		}
+	} else if (error_left < cmd_side_off_thresh) {
+		side_dbc[0] = 0U;
+		cmd_side_active[0] = 0U;
+	}
 
 	/* Right leg: motors 3,4 (indices 2,3) */
 	for (int i = 2; i < 4; i++) {
@@ -89,7 +108,16 @@ static void detect_active_side(const float target[DM4310_MOTOR_COUNT])
 			if (e > error_right) error_right = e;
 		}
 	}
-	cmd_side_active[1] = (error_right > SIDE_DETECT_THRESHOLD_RAD) ? 1U : 0U;
+	if (error_right > cmd_side_on_thresh) {
+		side_dbc[1] = (uint8_t)((uint32_t)side_dbc[1] + dt_ms);
+		if (side_dbc[1] >= SIDE_DEBOUNCE_MS) {
+			side_dbc[1] = SIDE_DEBOUNCE_MS;
+			cmd_side_active[1] = 1U;
+		}
+	} else if (error_right < cmd_side_off_thresh) {
+		side_dbc[1] = 0U;
+		cmd_side_active[1] = 0U;
+	}
 }
 
 /** @brief Main control thread */
@@ -155,8 +183,9 @@ K_THREAD_DEFINE(joint_test_tid, 4096,
 int main(void)
 {
 	printk("=== DM4310 Spring-Damper + Side Detect ===\n");
-	printk("KP=%.1f KD=%.1f  (tune via OpenOCD: set var cmd_kp=...)\n",
-	       (double)cmd_kp, (double)cmd_kd);
+	printk("KP=%.1f KD=%.1f  SideDetect(ON>%.2f OFF<%.2f rad)\n",
+	       (double)cmd_kp, (double)cmd_kd,
+	       (double)cmd_side_on_thresh, (double)cmd_side_off_thresh);
 	printk("Left:  motors 1,2 on CAN1\n");
 	printk("Right: motors 3,4 on CAN2\n");
 	return 0;
