@@ -1,6 +1,6 @@
 # DM4310 弹簧阻尼手感 + 左右腿同步开发
 
-> 注意上下文维护,以及注释维护,每次改动内容请写入changelog到./docs/change目录下,并且注意git维护以及github上传!!!
+> 注意上下文维护以及注释维护，每次改动内容请写入 CHANGELOG 到 `./docs/changelog/` 目录下，按日期命名 (如 `2026-05-04.md`)。注意 git 版本管理和 GitHub 推送。
 
 ## 分支: feature/spring-damper-sync
 
